@@ -1,12 +1,12 @@
 # Cobbler Roadmap
 # Release schedule and use case status for cobbler.
 #
-# Commands use shoemaking terms mapped to autogenic self-* capabilities:
-#   measure (self-orienting): assess state, propose tasks
-#   stitch (self-programming): execute work via agents
-#   inspect (self-reflecting): show project state
-#   mend (self-reflecting): fix tests and lint
-#   pattern (self-architecting): propose design changes
+# Commands (shoemaking terms):
+#   measure: assess project state, propose tasks
+#   stitch: execute work via agents
+#   inspect: evaluate output quality
+#   mend: fix tests and lint
+#   pattern: propose design changes
 
 releases:
   - id: "00.0"
@@ -92,8 +92,8 @@ releases:
   - id: "04.0"
     focus: Inspect, mend, and pattern
     description: |
-      Remaining self-* capabilities. inspect evaluates output quality, mend
-      fixes issues found by inspect, pattern proposes design changes.
+      Remaining commands. inspect evaluates output quality, mend fixes
+      issues found by inspect, pattern proposes design changes.
     use_cases:
       - id: rel04.0-uc001-project-state-display
         name: Project state display

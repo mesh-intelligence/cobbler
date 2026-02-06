@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Cobbler orchestrates AI coding agents through four autogenic capabilities: self-orienting (measure), self-programming (stitch), self-reflecting (inspect, mend), and self-architecting (pattern). We import the crumbs Go module and access the cupboard interface directly to read work items, coordinate agent execution, and update task state. The core insight is that agent orchestration separates naturally into phases: assess project state, execute work, evaluate output, and propose design changes.
+Cobbler cobbles together context for AI coding agents. We use the crumbs cupboard to store all work: both cobbler's own (planning, evaluation, design proposals) and work intended for agents (documentation, code). A property on each crumb indicates its type: planning, documentation, coding, or operations. Cobbler reads tasks from the cupboard, assembles context from project files and templates, dispatches each task to an agent one-shot, evaluates the result, updates task state, and creates new work as it discovers it. Over repeated cycles, cobbler iteratively manages what agents see and do. The agent does not iterate; it receives everything it needs upfront and returns a result.
 
 Cobbler replaces prototype bash scripts (make-work.sh and do-work.sh) with a structured Go CLI. Where the scripts built prompts through string concatenation and shelled out to bd commands, cobbler uses Go templates for prompt construction and calls cupboard methods directly via the imported crumbs module.
 
@@ -25,9 +25,9 @@ The crumbs Crumb entity has states: draft, pending, ready, taken, completed, fai
 
 ### Coordination Pattern
 
-Cobbler uses pull-based coordination. The CLI queries the cupboard for crumbs in the ready state, picks one, claims it by setting state to taken, and proceeds with execution. No push notifications or pub/sub announcements exist; the agent (cobbler) drives all state transitions.
+Cobbler uses a pull model. The CLI queries the cupboard for crumbs in the ready state, picks one, claims it by setting state to taken, and proceeds with execution. No push notifications or pub/sub announcements exist; cobbler drives all state transitions.
 
-This pattern matches the crumbs design: crumbs provides storage, not coordination. Agents or coordination frameworks build claiming, timeouts, and announcements on top of the Cupboard API (crumbs ARCHITECTURE).
+This pattern matches the crumbs design: crumbs provides storage, not operation. Operators like cobbler build claiming, timeouts, and announcements on top of the Cupboard API (crumbs ARCHITECTURE).
 
 ### Git Worktree Model
 
@@ -46,7 +46,23 @@ For code tasks, cobbler creates a git worktree on a branch named after the task 
 
 ## Main Interfaces
 
-Cobbler integrates with crumbs via the imported Go module and defines internal interfaces for agent abstraction and prompt construction.
+Cobbler uses crumbs as its sole work store. All work lives in the cupboard, distinguished by a work type property on each crumb. Cobbler integrates with crumbs via the imported Go module and defines internal interfaces for agent abstraction and prompt construction.
+
+| Table 2.5 Work Types |
+|-----------------------|
+
+| Type | Who does it | Examples |
+|------|-------------|----------|
+| planning | cobbler (measure) | Assess project state, propose new tasks |
+| documentation | agent (stitch) | Write or update markdown docs |
+| coding | agent (stitch) | Implement features, fix bugs |
+| operations | cobbler or agent | Run quality gates, fix lint, update configs |
+
+### Operations as Crumbs
+
+The five operations (measure, stitch, inspect, mend, pattern) are themselves stored as crumbs in the cupboard. Initially cobbler ships with fixed operation definitions: measure always reads the same project files, stitch always builds prompts the same way. But because these definitions live in the cupboard, they are data, not code.
+
+This opens a path for cobbler to modify its own behavior. An agent invoked through pattern could write new operation templates that change how stitch builds prompts, what order operations run in, or what quality gates mend applies. Cobbler reads the operation crumb, follows whatever template it finds, and dispatches accordingly. The mechanism cobbler uses to operate agents is the same mechanism that can reshape how cobbler itself operates.
 
 ### Cupboard Integration
 
@@ -79,7 +95,7 @@ Attach and Detach manage the cupboard lifecycle. Attach accepts a Config struct 
 
 ### Agent Interface
 
-The Agent interface abstracts LLM providers. We start with Claude via anthropic-sdk-go; the interface enables future providers without changing orchestration code.
+The Agent interface abstracts LLM providers. We start with Claude via anthropic-sdk-go; the interface enables future providers without changing dispatch code.
 
 ```go
 type Agent interface {
@@ -103,7 +119,7 @@ The Agent.Run method sends a prompt to the LLM with available tools. The respons
 
 ### Executor Interface
 
-The Executor coordinates the claim-execute-close workflow for a single task.
+The Executor manages the claim-execute-close workflow for a single task.
 
 ```go
 type Executor interface {
@@ -130,18 +146,18 @@ The Prompt Builder constructs prompts from templates and task context. Templates
 
 ## System Components
 
-**CLI (cmd/cobbler)**: Entry point using cobra for command parsing. Commands: measure, stitch, inspect, mend, pattern. Each command maps to an autogenic self-* capability. Viper loads configuration from file and environment.
+| Table 5 Commands |
+|------------------|
 
-| Table 5 Commands and Capabilities |
-|-----------------------------------|
+| Command | What it does |
+|---------|--------------|
+| measure | Assess project state, propose tasks |
+| stitch | Execute work via AI agents |
+| inspect | Evaluate output quality |
+| mend | Fix issues found by inspect |
+| pattern | Propose design and structural changes |
 
-| Command | Self-* capability | What it does |
-|---------|-------------------|--------------|
-| measure | Self-orienting | Assess project state, propose tasks |
-| stitch | Self-programming | Execute work via AI agents |
-| inspect | Self-reflecting | Evaluate output quality |
-| mend | Self-reflecting | Fix issues found by inspect |
-| pattern | Self-architecting | Propose design and structural changes |
+**CLI (cmd/cobbler)**: Entry point using cobra for command parsing. Commands: measure, stitch, inspect, mend, pattern. Viper loads configuration from file and environment.
 
 **Config (internal/config)**: Loads and validates configuration. Cupboard settings (backend, data directory), agent settings (API keys, model selection), and execution settings (worktree base path, timeout).
 
@@ -163,11 +179,11 @@ The Prompt Builder constructs prompts from templates and task context. Templates
 
 **Decision 1: Import crumbs as Go module, not CLI wrapper.** We import github.com/petar-djukic/crumbs and call cupboard methods directly. Benefits: type safety, no process spawning overhead, direct access to entity structs. Alternative rejected: wrapping bd CLI commands loses type information and adds shell parsing complexity.
 
-**Decision 2: Agent interface for provider abstraction.** The Agent interface decouples orchestration from LLM provider. We implement Claude first via anthropic-sdk-go. Benefits: add providers without changing executor code, test with mock agents. Alternative rejected: hardcoding Claude calls spreads provider-specific logic throughout the codebase.
+**Decision 2: Agent interface for provider abstraction.** The Agent interface decouples dispatch from LLM provider. We implement Claude first via anthropic-sdk-go. Benefits: add providers without changing executor code, test with mock agents. Alternative rejected: hardcoding Claude calls spreads provider-specific logic throughout the codebase.
 
 **Decision 3: Prompt templates in internal/prompt.** Templates are Go templates or embedded strings in the internal/prompt package. Benefits: templates are testable Go code, IDE support for editing, compile-time errors for missing variables. Alternative rejected: external template files add deployment complexity and make testing harder.
 
-**Decision 4: Commands named after shoemaking terms.** Cobbler commands (measure, stitch, inspect, mend, pattern) follow the shoemaking metaphor. Benefits: memorable naming, consistent theme with project name. Each command maps to an autogenic self-* capability, grounding the metaphor in the research context.
+**Decision 4: Commands named after shoemaking terms.** Cobbler commands (measure, stitch, inspect, mend, pattern) follow the shoemaking metaphor. Benefits: memorable naming, consistent theme with project name. The five commands cover a full cycle: assess, execute, evaluate, fix, redesign.
 
 **Decision 5: Git worktree isolation for code tasks.** Code tasks execute in a worktree on a task-specific branch. Benefits: main branch stays clean during execution, multiple tasks can run in parallel (future), failed tasks leave main unaffected. Alternative rejected: working directly on main risks leaving partial changes on failure.
 
@@ -244,7 +260,7 @@ We are in phase 01.0: stitch for documentation. The focus is cobbler stitch exec
 | 03.0 | Measure | Planned |
 | 04.0 | Inspect, mend, pattern | Planned |
 
-Success criteria from VISION: autonomous execution (agents complete tasks without intervention), cupboard integration (direct Go calls, no shell commands), graduated prototypes (make-work.sh and do-work.sh become obsolete).
+Success criteria from VISION: task completion without iteration, cupboard integration via direct Go calls, replaced prototypes (make-work.sh and do-work.sh become obsolete).
 
 ## Related Documents
 
